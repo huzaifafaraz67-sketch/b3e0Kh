@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>b3e0Kh - Secure Calling Engine</title>
+  <!-- PeerJS WebRTC Library -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #0b0f19;
+      color: #ffffff;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+    }
+    .header {
+      text-align: center;
+      margin-top: 10px;
+    }
+    .room-title {
+      font-size: 1.1rem;
+      color: #38bdf8;
+      font-weight: bold;
+      letter-spacing: 2px;
+    }
+    .status {
+      font-size: 0.85rem;
+      color: #94a3b8;
+      margin-top: 4px;
+    }
+    .video-container {
+      position: relative;
+      width: 100%;
+      max-width: 500px;
+      flex-grow: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 16px 0;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #1e293b;
+    }
+    #remoteVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    #localVideo {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 100px;
+      height: 140px;
+      object-fit: cover;
+      border-radius: 12px;
+      border: 2px solid #38bdf8;
+      background: #0f172a;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    .controls {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .btn {
+      padding: 12px 24px;
+      border-radius: 50px;
+      border: none;
+      font-weight: bold;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .end-btn {
+      background-color: #ef4444;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="room-title" id="roomDisplay">ROOM: --- --- ---</div>
+    <div class="status" id="statusText">Initializing Peer Engine...</div>
+  </div>
+
+  <div class="video-container">
+    <video id="remoteVideo" autoplay playsinline></video>
+    <video id="localVideo" autoplay muted playsinline></video>
+  </div>
+
+  <div class="controls">
+    <button class="btn end-btn" onclick="endCall()">End Call</button>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomCode = urlParams.get('room');
+
+    const statusText = document.getElementById('statusText');
+    const roomDisplay = document.getElementById('roomDisplay');
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+
+    if (!roomCode || roomCode.length !== 9) {
+      statusText.innerText = "Error: Invalid 9-digit room code!";
+      statusText.style.color = "#ef4444";
+    } else {
+      // Format 9-digit display (e.g. 123 456 789)
+      roomDisplay.innerText = `ROOM: ${roomCode.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3')}`;
+
+      // Unique Peer ID strategy based on 9-digit code
+      const isHost = !window.location.hash.includes('join');
+      const myPeerId = isHost ? `talk-${roomCode}-A` : `talk-${roomCode}-B`;
+      const targetPeerId = isHost ? `talk-${roomCode}-B` : `talk-${roomCode}-A`;
+
+      const peer = new Peer(myPeerId);
+
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          localVideo.srcObject = stream;
+          statusText.innerText = "Waiting for peer to connect...";
+
+          // Answer incoming call
+          peer.on('call', (call) => {
+            call.answer(stream);
+            call.on('stream', (remoteStream) => {
+              remoteVideo.srcObject = remoteStream;
+              statusText.innerText = "Connected (Direct P2P)";
+              statusText.style.color = "#22c55e";
+            });
+          });
+
+          // Connect when peer opens
+          peer.on('open', () => {
+            if (!isHost) {
+              const call = peer.call(targetPeerId, stream);
+              call.on('stream', (remoteStream) => {
+                remoteVideo.srcObject = remoteStream;
+                statusText.innerText = "Connected (Direct P2P)";
+                statusText.style.color = "#22c55e";
+              });
+            }
+          });
+
+          // Fallback retry for host if client arrives second
+          if (isHost) {
+            setInterval(() => {
+              if (!remoteVideo.srcObject) {
+                const call = peer.call(targetPeerId, stream);
+                if (call) {
+                  call.on('stream', (remoteStream) => {
+                    remoteVideo.srcObject = remoteStream;
+                    statusText.innerText = "Connected (Direct P2P)";
+                    statusText.style.color = "#22c55e";
+                  });
+                }
+              }
+            }, 3000);
+          }
+        })
+        .catch((err) => {
+          statusText.innerText = "Error: Camera/Mic permissions denied.";
+          statusText.style.color = "#ef4444";
+        });
+    }
+
+    function endCall() {
+      window.location.href = "https://huzaifafaraz67-sketch.github.io/talk-with-me/";
+    }
+  </script>
+</body>
+</html>
