@@ -4,8 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>b3e0Kh - Secure Calling Engine</title>
+  
+  <!-- Inline SVG Favicon to eliminate 404 error -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📞</text></svg>">
+  
   <!-- PeerJS WebRTC Library -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  
   <style>
     * {
       box-sizing: border-box;
@@ -106,71 +111,82 @@
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const roomCode = urlParams.get('room');
-
     const statusText = document.getElementById('statusText');
     const roomDisplay = document.getElementById('roomDisplay');
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
 
-    if (!roomCode || roomCode.length !== 9) {
+    if (!roomCode || roomCode.length !== 9 || isNaN(roomCode)) {
       statusText.innerText = "Error: Invalid 9-digit room code!";
       statusText.style.color = "#ef4444";
     } else {
-      // Format 9-digit display (e.g. 123 456 789)
       roomDisplay.innerText = `ROOM: ${roomCode.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3')}`;
 
-      // Unique Peer ID strategy based on 9-digit code
-      const isHost = !window.location.hash.includes('join');
-      const myPeerId = isHost ? `talk-${roomCode}-A` : `talk-${roomCode}-B`;
-      const targetPeerId = isHost ? `talk-${roomCode}-B` : `talk-${roomCode}-A`;
+      // Free Google STUN servers for cross-network connectivity
+      const peerConfig = {
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' }
+          ]
+        }
+      };
 
-      const peer = new Peer(myPeerId);
+      const hostId = `talk-${roomCode}-host`;
 
       navigator.mediaDevices.getUserMedia({ video: true, audio: true })
         .then((stream) => {
           localVideo.srcObject = stream;
-          statusText.innerText = "Waiting for peer to connect...";
+          statusText.innerText = "Connecting to room...";
 
-          // Answer incoming call
-          peer.on('call', (call) => {
-            call.answer(stream);
-            call.on('stream', (remoteStream) => {
-              remoteVideo.srcObject = remoteStream;
-              statusText.innerText = "Connected (Direct P2P)";
-              statusText.style.color = "#22c55e";
-            });
-          });
+          // Attempt to register as HOST
+          const peer = new Peer(hostId, peerConfig);
 
-          // Connect when peer opens
           peer.on('open', () => {
-            if (!isHost) {
-              const call = peer.call(targetPeerId, stream);
+            statusText.innerText = "Waiting for caller to join...";
+            peer.on('call', (call) => {
+              call.answer(stream);
               call.on('stream', (remoteStream) => {
                 remoteVideo.srcObject = remoteStream;
                 statusText.innerText = "Connected (Direct P2P)";
                 statusText.style.color = "#22c55e";
               });
+            });
+          });
+
+          // If HOST ID is taken, connect as GUEST to the HOST
+          peer.on('error', (err) => {
+            if (err.type === 'unavailable-id') {
+              statusText.innerText = "Host found! Connecting call...";
+              const guestPeer = new Peer(peerConfig);
+
+              guestPeer.on('open', () => {
+                const call = guestPeer.call(hostId, stream);
+                call.on('stream', (remoteStream) => {
+                  remoteVideo.srcObject = remoteStream;
+                  statusText.innerText = "Connected (Direct P2P)";
+                  statusText.style.color = "#22c55e";
+                });
+              });
+
+              guestPeer.on('call', (call) => {
+                call.answer(stream);
+                call.on('stream', (remoteStream) => {
+                  remoteVideo.srcObject = remoteStream;
+                  statusText.innerText = "Connected (Direct P2P)";
+                  statusText.style.color = "#22c55e";
+                });
+              });
+            } else {
+              statusText.innerText = "Connection error. Retrying...";
+              statusText.style.color = "#ef4444";
             }
           });
 
-          // Fallback retry for host if client arrives second
-          if (isHost) {
-            setInterval(() => {
-              if (!remoteVideo.srcObject) {
-                const call = peer.call(targetPeerId, stream);
-                if (call) {
-                  call.on('stream', (remoteStream) => {
-                    remoteVideo.srcObject = remoteStream;
-                    statusText.innerText = "Connected (Direct P2P)";
-                    statusText.style.color = "#22c55e";
-                  });
-                }
-              }
-            }, 3000);
-          }
         })
         .catch((err) => {
-          statusText.innerText = "Error: Camera/Mic permissions denied.";
+          statusText.innerText = "Error: Camera or Microphone permission denied.";
           statusText.style.color = "#ef4444";
         });
     }
